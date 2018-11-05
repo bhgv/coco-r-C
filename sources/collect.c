@@ -51,10 +51,16 @@ void Collection_Clean(PCollection Col)
 static void Collection_Resize(PCollection Col)
 {
   void *x;
-  Col->size+=Col->n_ext;
-  if ((x=realloc(Col->data, Col->el_size*Col->size))==NULL)
+  int old_size = Col->size;
+  Col->size += Col->n_ext;
+  x = malloc(Col->el_size * Col->size);
+//  if ((x=realloc(Col->data, Col->el_size*Col->size))==NULL)
+  if(x == NULL)
     Collection_Panic("Collection.resize");
-  else Col->data = (char *) x;
+  else{ 
+    memcpy(x, Col->data, Col->el_size * old_size);
+    Col->data = (char *) x;
+  }
 }
 
 int Collection_New(PCollection Col)

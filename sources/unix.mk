@@ -12,7 +12,7 @@
 # add -DDebug if required
 # CFLAGS          = -O -DDebug
 
-CFLAGS          = -O
+CFLAGS          = -O -g
 
 #CC sets the name of the compiler to use (cc, gcc, etc)
 #You will have to change this to suit your system
