@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define  MAX_ALT_IF     3
+#define  MAX_ALT_IF     0xffff
 #define  isspacetab(c)  (c == ' ' || c == '\t')
 
 static FILE *fparser, *fherror;
