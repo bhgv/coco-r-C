@@ -16,7 +16,11 @@ typedef void (*Error_Func) (int nr, int line, int col, long pos);
 #define MinErrDist 2
 #define MAXERROR   -->MaxErr
 
+#ifndef CUSTOM_BUFF
 void Parse(void);
+#else
+void Parse(unsigned char* text, int text_len);
+#endif
 /* Parse the source */
 
 int Successful(void);

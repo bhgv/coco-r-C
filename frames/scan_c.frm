@@ -181,11 +181,16 @@ void S_GetName (long pos, int len, char *s, int max)
   *s = '\0';
 }
 
+#ifndef CUSTOM_BUFF
 void S_Reset(void)
+#else
+void S_Reset(unsigned char* text, int text_len)
+#endif
 /* assert: S_src has been opened */
 { long len;
   int  i = 0, n;
 
+#ifndef CUSTOM_BUFF
   S_InputLen = len = lseek(S_src, 0L, SEEK_END);
   (void) lseek(S_src, 0L, SEEK_SET);
 
@@ -199,10 +204,15 @@ void S_Reset(void)
   Buffer[i] = (unsigned char *) malloc((unsigned) len + 1);
   n = read(S_src, (void *) Buffer[i], (unsigned) len);
   (Buffer[i])[n] = EOF_CHAR;
-#else 
+#else
   Buffer = (unsigned char *) malloc(len+1);
   n = read(S_src, (void *) Buffer, len);
   Buffer[n] = EOF_CHAR;
+#endif
+#else
+  S_InputLen = text_len;
+  Buffer = text;
+  Buffer[S_InputLen] = EOF_CHAR;
 #endif
 
   S_CurrLine = 1; S_LineStart = 0; S_BuffPos = -1; S_CurrCol = 0;

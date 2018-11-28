@@ -34,7 +34,11 @@ extern long S_lineStart;   /* start position of current line */
 int S_Get(void);
 /* Gets next symbol from source file */
 
+#ifndef CUSTOM_BUFF
 void S_Reset(void);
+#else
+void S_Reset(unsigned char* text, int text_len);
+#endif
 /* Reads and stores source file internally */
 /* Assert: S_src has been opened */
 

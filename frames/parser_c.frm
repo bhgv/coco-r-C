@@ -106,8 +106,18 @@ int Successful(void)
 
 -->Productions
 
+#ifndef CUSTOM_BUFF
 void Parse(void)
-{ S_Reset(); Get();
+#else
+void Parse(unsigned char* text, int text_len)
+#endif
+{
+#ifndef CUSTOM_BUFF
+  S_Reset();
+#else
+  S_Reset(text, text_len);
+#endif
+  Get();
   -->ParseRoot
 }
 
