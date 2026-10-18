@@ -84,11 +84,11 @@ unsigned char S_CurrentCh(long pos);
 #define UPCASE(c)    ((c >= 'a' && c <= 'z') ? c-32 : c)
 
 unsigned char S_CurrentCh(long pos)
-{ return (unsigned char) CURRENT_CH(pos); }
+{ return pos >= 0 && pos < S_InputLen ? (unsigned char) CURRENT_CH(pos) : EOF_CHAR; }
 
 #if IGNORE_CASE
-#define S_NextCh() { S_BuffPos++;\
-		     S_ch = CURRENT_CH(S_BuffPos);\
+#define S_NextCh() { if (S_BuffPos < S_InputLen) S_BuffPos++;\
+		     S_ch = S_CurrentCh(S_BuffPos);\
 		     S_ch = UPCASE(S_ch);\
 		     if (S_ch == TAB_CHAR) S_CurrCol += TAB_SIZE - (S_CurrCol % TAB_SIZE); else \
 		     if (S_ch == LF_CHAR) {\
@@ -97,8 +97,8 @@ unsigned char S_CurrentCh(long pos)
 		     S_CurrCol++;\
 		   }
 #else
-#define S_NextCh() { S_BuffPos++;\
-		     S_ch = CURRENT_CH(S_BuffPos);\
+#define S_NextCh() { if (S_BuffPos < S_InputLen) S_BuffPos++;\
+		     S_ch = S_CurrentCh(S_BuffPos);\
 		     if (S_ch == TAB_CHAR) S_CurrCol += TAB_SIZE - (S_CurrCol % TAB_SIZE); else \
 		     if (S_ch == LF_CHAR) {\
 		       S_CurrLine++; S_CurrCol = 0;\
@@ -108,7 +108,7 @@ unsigned char S_CurrentCh(long pos)
 #endif
 
 static int EqualStr (char *s)
-{ long q; char c;
+{ long q; unsigned char c;
   if (S_NextLen != (int) strlen(s)) return 0;
   q = S_NextPos;
   while (*s) {
@@ -116,19 +116,19 @@ static int EqualStr (char *s)
 #if IGNORE_CASE
     c = UPCASE(c);
 #endif
-    if (c != *s++) return 0;
+    if (c != (unsigned char)*s++) return 0;
   }
   return 1;
 }
 
 static int CheckLiteral(int id)
-{ char c;
+{ unsigned char c;
   c = CURRENT_CH(S_NextPos);
 #if IGNORE_CASE
   c = UPCASE(c);
 #endif
   switch (c) {
-  -->Literals
+-->Literals
   }
   return id;
 }
@@ -166,17 +166,17 @@ int S_Get(void)
 }
 
 void S_GetString (long pos, int len, char *s, int max)
-{ while (len-- && max--) { *s++ = CURRENT_CH(pos); pos++; }
+{ while (len > 0 && max > 0 && pos >= 0 && pos < S_InputLen) { *s++ = CURRENT_CH(pos); pos++; len--; max--; }
   *s = '\0';
 }
 
 void S_GetName (long pos, int len, char *s, int max)
-{ while (len-- && max--) {
+{ while (len > 0 && max > 0 && pos >= 0 && pos < S_InputLen) {
     *s = CURRENT_CH(pos);
 #if IGNORE_CASE
     *s = UPCASE(*s);
 #endif
-    s++; pos++;
+    s++; pos++; len--; max--;
   }
   *s = '\0';
 }
@@ -205,19 +205,41 @@ void S_Reset(unsigned char* text, int text_len)
   n = read(S_src, (void *) Buffer[i], (unsigned) len);
   (Buffer[i])[n] = EOF_CHAR;
 #else
-  Buffer = (unsigned char *) malloc(len+1);
-  n = read(S_src, (void *) Buffer, len);
-  Buffer[n] = EOF_CHAR;
+  if (len < 0) { perror("scanner seek"); exit(1); }
+  free(Buffer);
+  Buffer = (unsigned char *) malloc((size_t)len + 1);
+  if (!Buffer) { fprintf(stderr, "Scanner: out of memory\n"); exit(1); }
+  S_InputLen = 0;
+  while (S_InputLen < len) {
+    n = read(S_src, Buffer + S_InputLen, (size_t)(len - S_InputLen));
+    if (n < 0) { perror("scanner read"); exit(1); }
+    if (n == 0) break;
+    S_InputLen += n;
+  }
+  Buffer[S_InputLen] = EOF_CHAR;
 #endif
 #else
+#if SEGMENTED_BUFF
+#error CUSTOM_BUFF requires a linear scanner buffer
+#else
+  if (text_len < 0 || (!text && text_len)) {
+    fprintf(stderr, "Scanner: invalid custom buffer\n"); exit(1);
+  }
+  free(Buffer);
   S_InputLen = text_len;
-  Buffer = text;
-  Buffer[S_InputLen] = EOF_CHAR;
+  Buffer = (unsigned char *) malloc((size_t)text_len + 1);
+  if (!Buffer) { fprintf(stderr, "Scanner: out of memory\n"); exit(1); }
+  if (text_len) memcpy(Buffer, text, (size_t)text_len);
+  Buffer[text_len] = EOF_CHAR;
+#endif
 #endif
 
   S_CurrLine = 1; S_LineStart = 0; S_BuffPos = -1; S_CurrCol = 0;
   S_NextPos  = 0; S_NextCol = 0; S_NextLine = 0; S_NextLen = 0;
   S_ComEols = 0;
+  /* Accept a UTF-8 BOM without changing byte offsets into the source. */
+  if (S_InputLen >= 3 && S_CurrentCh(0) == 0xef &&
+      S_CurrentCh(1) == 0xbb && S_CurrentCh(2) == 0xbf) S_BuffPos = 2;
   S_NextCh();
 }
 

@@ -58,6 +58,7 @@ typedef char     *PName;
 #define T_ANY     9      /* ANY symbol */
 #define T_SYNC   10      /* SYNC */
 #define T_P      11      /* Pragma */
+#define T_RESOLVER 12    /* Leading IF predicate, zero-width and not a semantic action. */
 
 #define T_CHAR    T_T    /* Simple Char */
 #define T_CLASS   T_WT   /* Char Set */
@@ -102,7 +103,7 @@ void SetGraphLine(int current, int line);
 void ShowGraph(int graph);
 void CleanGraphTab(void);
 
-#define GetGraphP(p) (PGraphNode) Collection_At(&nodes_tab, p)
+#define GetGraphP(p) ((PGraphNode) Collection_At(&nodes_tab, p))
 
 /******************************************************************
      Terminal Definitions and Functions

@@ -1,0 +1,19 @@
+$C                                             /* Generate a command-line C driver. */
+COMPILER Choices                               /* Parse through the Choices entry point. */
+#include <stdio.h>                             /* Declare printf and puts for semantic actions. */
+static int count;                              /* Keep a counter that the loop guard can inspect. */
+IGNORE CHR(9) + CHR(10) + CHR(13)                /* Accept line endings and tabs in the input. */
+PRODUCTIONS                                    /* Begin parser productions. */
+Choices =                                      /* Select one command, then consume its arguments. */
+  ( IF(Sym == xSym && (count == 0))              /* Use a C predicate to prefer the first x branch. */
+      "x" (. puts("guarded branch"); .)         /* Consume x and report the selected branch. */
+  | "x" (. puts("fallback branch"); .)          /* Keep a same-token fallback when the predicate is false. */
+  )                                            /* End the alternative group. */
+  [ IF(Sym == ySym) "y" ]                       /* Consume an optional y only when its predicate is true. */
+  { IF(Sym == zSym && count < 2)                 /* Recheck lookahead and the limit before every iteration. */
+      "z" (. ++count; .)                       /* Consume one z and advance the loop state. */
+  }                                            /* Stop without consuming the next token when false. */
+  "中文"                                       /* Match an exact UTF-8 byte sequence. */
+  (. printf("z count: %d\n", count); .)         /* Report how many iterations were completed. */
+  .                                            /* Finish the entry production. */
+END Choices.                                   /* Finish the grammar. */

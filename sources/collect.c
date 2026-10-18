@@ -1,154 +1,122 @@
-/*  Dynamic Vector Manager */
-
+/* Stable-address record collection. Growing the pointer table never relocates records. */
 #include <stdio.h>
 #include <stdlib.h>
-#include <memory.h>
+#include <string.h>
+#include <limits.h>
 #include "collect.h"
 
-static void Collection_Panic(char *s)
+/* Fail before modifying a live collection on an invalid size or allocation failure. */
+static void Collection_Panic(const char *operation)
 {
-  (void ) fprintf(stderr, "%s:Out of Memory", s);
-  exit(1);
+    fprintf(stderr, "%s: invalid size, index, or out of memory\n", operation);
+    exit(1);
 }
 
-/* Create a Dynamic vector "Col",
-   Each element is "elem_s" long,
-   Initial size = "size",
-   Each time it grows, it grows in "extend" elements
-*/
-
-void Collection_Init(PCollection Col, int elem_s, int size, int extend)
+/* Reserve zeroed pointer slots; actual records are allocated only when first used. */
+void Collection_Init(PCollection col, int element_size, int capacity, int extend)
 {
-  size_t space;
-
-  Col->el_size = elem_s;
-  Col->n_ext   = extend;
-  Col->size    = size;
-  Col->el_free = 0;
-
-  space         = elem_s*size;
-  Col->data     = (char *) malloc(space);
-  if (Col->data==NULL) Collection_Panic("Collection.init");
-  memset(Col->data, 0, space);
+    if (element_size <= 0 || capacity <= 0 || extend <= 0 ||
+        (size_t)capacity > (size_t)-1 / sizeof(char *))
+        Collection_Panic("Collection.init");
+    col->data = (char **)calloc((size_t)capacity, sizeof(char *));
+    if (!col->data) Collection_Panic("Collection.init");
+    col->el_size = element_size;
+    col->n_ext = extend;
+    col->size = capacity;
+    col->el_free = 0;
 }
 
-/* Destroy a Dynamic Vector */
-
-void Collection_Done(PCollection Col)
+/* Release every allocated record and the table, but not pointers owned by record fields. */
+void Collection_Done(PCollection col)
 {
-  Col->size=0;
-  Col->el_free=0;
-  free(Col->data);
+    int i;
+    for (i = 0; i < col->size; ++i) free(col->data[i]);
+    free(col->data);
+    col->data = NULL;
+    col->size = col->el_free = 0;
 }
 
-/* Clean a Dynamic Vector */
-
-void Collection_Clean(PCollection Col)
+/* Keep record capacity for reuse; Collection_New reinitializes each returned record. */
+void Collection_Clean(PCollection col)
 {
-  Col->el_free=0;
+    col->el_free = 0;
 }
 
-static void Collection_Resize(PCollection Col)
+/* Grow only the pointer table, preserving all record addresses and edits through old pointers. */
+static void Collection_Resize(PCollection col)
 {
-  void *x;
-  int old_size = Col->size;
-  Col->size += Col->n_ext;
-  x = malloc(Col->el_size * Col->size);
-//  if ((x=realloc(Col->data, Col->el_size*Col->size))==NULL)
-  if(x == NULL)
-    Collection_Panic("Collection.resize");
-  else{ 
-    memcpy(x, Col->data, Col->el_size * old_size);
-    Col->data = (char *) x;
-  }
+    int capacity;
+    char **table;
+    if (col->size > INT_MAX - col->n_ext) Collection_Panic("Collection.resize");
+    capacity = col->size + col->n_ext;
+    if ((size_t)capacity > (size_t)-1 / sizeof(char *)) Collection_Panic("Collection.resize");
+    table = (char **)realloc(col->data, (size_t)capacity * sizeof(char *));
+    if (!table) Collection_Panic("Collection.resize");
+    memset(table + col->size, 0, (size_t)(capacity - col->size) * sizeof(char *));
+    col->data = table;
+    col->size = capacity;
 }
 
-int Collection_New(PCollection Col)
+/* Return a newly zeroed, stable record index. */
+int Collection_New(PCollection col)
 {
-  if (Col->el_free == Col->size) Collection_Resize(Col);
-  Col->el_free++;
-  return (Col->el_free-1);
+    int index = col->el_free;
+    if (index == col->size) Collection_Resize(col);
+    if (!col->data[index]) col->data[index] = (char *)malloc((size_t)col->el_size);
+    if (!col->data[index]) Collection_Panic("Collection.new");
+    memset(col->data[index], 0, (size_t)col->el_size);
+    ++col->el_free;
+    return index;
 }
 
-int Collection_Count(PCollection Col)
+/* Return the live record count, excluding reserved capacity. */
+int Collection_Count(PCollection col)
 {
-  return (Col->el_free);
+    return col->el_free;
 }
 
-void *Collection_At(PCollection Col, int pos)
+/* Reject negative and one-past-live indexes instead of returning an invalid record. */
+void *Collection_At(PCollection col, int index)
 {
-  char *n;
-  if (pos > Col->el_free) return NULL;
-  n = Col->data;
-  n += Col->el_size*pos;
-  return n;
+    if (index < 0 || index >= col->el_free) return NULL;
+    return col->data[index];
 }
 
-void Collection_Get(PCollection Col, int pos, void *data)
+/* Copy a valid record into caller-owned storage. */
+void Collection_Get(PCollection col, int index, void *out)
 {
-  char *n;
-  if (pos > Col->el_free) Collection_Panic("Collection.get");
-  n = Col->data;
-  n += Col->el_size*pos;
-  (void) memcpy(data, n, Col->el_size);
+    void *record = Collection_At(col, index);
+    if (!record || !out) Collection_Panic("Collection.get");
+    memcpy(out, record, (size_t)col->el_size);
 }
 
-void Collection_Put(PCollection Col, int pos, void *data)
+/* Replace a valid record without changing its address. */
+void Collection_Put(PCollection col, int index, void *value)
 {
-  char *n;
-  if (pos > Col->el_free) Collection_Panic("Collection.put");
-  n = Col->data;
-  n += Col->el_size*pos;
-  (void) memcpy(n, data, Col->el_size);
+    void *record = Collection_At(col, index);
+    if (!record || !value) Collection_Panic("Collection.put");
+    memcpy(record, value, (size_t)col->el_size);
 }
 
-void Collection_ForEach(PCollection Col, Collection_Func fn)
+/* Iterate only the records live at entry; callbacks may safely grow the collection. */
+void Collection_ForEach(PCollection col, Collection_Func function)
 {
-  char *el_mem;
-  int  count, el_pos;
-
-  el_mem = Col->data;
-  count  = Col->el_free;
-  el_pos = 0;
-
-  while(count--) {
-    (*fn) (el_mem);
-    el_mem += Col->el_size;
-    el_pos++;
-  }
+    int i, count = col->el_free;
+    for (i = 0; i < count; ++i) function(col->data[i]);
 }
 
-void Collection_ForEachPos(PCollection Col, Collection_FuncPos fn)
+/* As above, also pass the stable index to the callback. */
+void Collection_ForEachPos(PCollection col, Collection_FuncPos function)
 {
-  char *el_mem;
-  int  count, el_pos;
-
-  el_mem = Col->data;
-  count  = Col->el_free;
-  el_pos = 0;
-
-  while(count--) {
-    (*fn) (el_mem, el_pos);
-    el_mem += Col->el_size;
-    el_pos++;
-  }
+    int i, count = col->el_free;
+    for (i = 0; i < count; ++i) function(col->data[i], i);
 }
 
-int Collection_FirstThat(PCollection Col, Collection_Comp fn, void *data)
+/* Return the first matching live index, or -1. */
+int Collection_FirstThat(PCollection col, Collection_Comp function, void *value)
 {
-  char *el_mem;
-  int  count, el_pos;
-
-  el_mem = Col->data;
-  count  = Col->el_free;
-  el_pos = 0;
-
-  while (count--) {
-    if ((*fn) (el_mem, data) != 0) return el_pos;
-    el_mem += Col->el_size;
-    el_pos++;
-  }
-  return -1;
+    int i, count = col->el_free;
+    for (i = 0; i < count; ++i)
+        if (function(col->data[i], value)) return i;
+    return -1;
 }
-
-

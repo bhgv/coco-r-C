@@ -54,9 +54,4 @@ cocor:          $(OBJS)
 		cp cocor ..
 
 clean:
-		set -i; \
-                rm	 *.o
-		rm cocor
-
-
-
+		rm -f $(OBJS) cocor

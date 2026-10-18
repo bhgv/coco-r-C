@@ -54,6 +54,7 @@ void Set_AddItem(PSet set, int n)
 {
   int p, b;
 
+  if (n < 0) { fprintf(stderr, "Set: negative element\n"); exit(1); }
   p = n / SET_NBITS;
   b = n % SET_NBITS;
   if (p+1 > set->size) Set_Resize(set, p+1);
@@ -64,6 +65,7 @@ void Set_DelItem(PSet set, int n)
 {
   int p, b;
 
+  if (n < 0) return;
   p = n / SET_NBITS;
   b = n % SET_NBITS;
   if (p >= set->size) return;
@@ -74,6 +76,7 @@ int Set_IsItem(PSet set, int n)
 {
   int p, b;
 
+  if (n < 0) return 0;
   p = n / SET_NBITS;
   b = n % SET_NBITS;
   if (p >= set->size) return 0;

@@ -49,7 +49,7 @@ static char *GetFormatLine (char *s, char *line)
 static void GenSemCode(int tab, long pos, int len, int line, int col, int gencomma)
 {
 	int i;
-	char *buff, *s, *sb;
+	char *buff, *s, *sb, *formatted;
 	int Comma = FALSE, firstline = 1;
 
 	if (D_option) fprintf(fparser, "# line %d \"%s\"\n", line, source_name);
@@ -59,7 +59,13 @@ static void GenSemCode(int tab, long pos, int len, int line, int col, int gencom
 		return;
 	}
 
-	sb = buff = (char *) malloc(len + 2);
+	/* A tab can expand to TAB_SIZE spaces; source lines have no fixed limit. */
+    if (len < 0 || (size_t)len > ((size_t)-1 - 2) / TAB_SIZE) {
+        fprintf(stderr, "Semantic text is too large\n"); exit(1);
+    }
+    formatted = (char *) malloc((size_t)len * TAB_SIZE + 2);
+    sb = buff = (char *) malloc((size_t)len + 2);
+    if (!formatted || !buff) { fprintf(stderr, "Out of memory\n"); exit(1); }
 	S_GetString(pos, len, buff, len);
 
 	/* remove leading and trailing spaces. PT */
@@ -67,8 +73,8 @@ static void GenSemCode(int tab, long pos, int len, int line, int col, int gencom
 	while (len > 0 && buff[len - 1] == ' ') len--;
 	buff[len] = '\0';
 
-	while ((sb = GetFormatLine(sb, temp_str)) != NULL) {
-		s = temp_str;
+	while ((sb = GetFormatLine(sb, formatted)) != NULL) {
+		s = formatted;
 		if (!firstline) {
 			GenCode(fparser, "$$");
 			i = col - 1;  /* skip spaces (max col + 2) */
@@ -87,6 +93,7 @@ static void GenSemCode(int tab, long pos, int len, int line, int col, int gencom
 	if (Comma && gencomma) GenCode(fparser, ";");
 	GenCode(fparser, "$$");
 	free(buff);
+    free(formatted);
 }
 
 /* generate attribute code */
@@ -167,6 +174,24 @@ static int CompAltCount(int n)
 	return c;
 }
 
+/* Emit the exact source predicate; it overrides token prediction like Coco/R C++.
+   Do not treat FIRST as checked when the decision was made by arbitrary C code. */
+static int HasResolver(int gp)
+{
+    return gp > NIL && GetGraphP(gp)->type == T_RESOLVER;
+}
+
+/* Source text is copied byte-for-byte, including UTF-8, comments and newlines. */
+static void GenCondition(int gp, Set *set)
+{
+    if (HasResolver(gp)) {
+        PGraphNode node = GetGraphP(gp);
+        int i;
+        for (i = 0; i < node->SEMLEN; ++i)
+            fputc(S_CurrentCh(node->SEMPOS + i), fparser);
+    } else GenCode(fparser, "%S", set);
+}
+
 /* generate function graph */
 static void GenFuncGraph(int gp, int tab, Set *chequed)
 {
@@ -180,7 +205,7 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 	while (gp > NIL) {
 		gn = GetGraphP(gp);
 		if (D_option &&
-				gn->type != T_SEM)
+				gn->type != T_SEM && gn->type != T_RESOLVER)
 			fprintf(fparser, "# line %d \"%s\"\n",
 					gn->SLine, source_name);
 
@@ -210,9 +235,12 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 		case T_OPT:
 			Set_Clean(&s1);
 			CompFirstSet(gn->INNER, &s1);
-			if (Set_Equal(chequed, &s1)) GenFuncGraph(gn->INNER, tab, &s1);
+			if (!HasResolver(gn->INNER) && Set_Equal(chequed, &s1)) GenFuncGraph(gn->INNER, tab, &s1);
 			else {
-				GenCode(fparser, "%Iif (%S) {$$", tab, &s1);
+				GenCode(fparser, "%Iif (", tab);
+                GenCondition(gn->INNER, &s1);
+                GenCode(fparser, ") {$$");
+                if (HasResolver(gn->INNER)) Set_Clean(&s1);
 				GenFuncGraph(gn->INNER, tab + 1, &s1);
 				GenCode(fparser, "%I}$$", tab);
 			}
@@ -230,7 +258,10 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 				} else {
 					Set_Clean(&s1);
 					CompFirstSet(gn->INNER, &s1);
-					GenCode(fparser, "%Iwhile (%S) {$$", tab, &s1);
+					GenCode(fparser, "%Iwhile (", tab);
+                    GenCondition(gn->INNER, &s1);
+                    GenCode(fparser, ") {$$");
+                    if (HasResolver(gn->INNER)) Set_Clean(&s1);
 					GenFuncGraph(gn->INNER, tab + 1, &s1);
 				}
 				GenCode(fparser, "%I}$$", tab);
@@ -246,6 +277,12 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 
 				Set_Init(&symdone);
 				gen_case = CompAltCount(gp) > MAX_ALT_IF;
+                gp1 = gp;
+                while (gp1) {
+                    gn1 = GetGraphP(gp1);
+                    if (HasResolver(gn1->INNER)) gen_case = FALSE;
+                    gp1 = gn1->ALT;
+                }
 				if (gen_case) GenCode(fparser, "%Iswitch (Sym) {$$", tab);
 				gp1 = gp;
 				while (gp1) {
@@ -254,15 +291,18 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 					Set_Clean(&s1);
 					CompExpected(gn1->INNER, CurrentNt, &s1);
 					Set_Diference(&s1, &symdone);
-					Set_Union(&symdone, &s1);
+                    if (!HasResolver(gn1->INNER)) Set_Union(&symdone, &s1);
 
 					if (gen_case) GenCode(fparser, "%I%X $$", tab + 1, &s1);
 					else {
-						if (gp1 == gp) GenCode(fparser, "%Iif (%S) {$$", tab, &s1);
-						else GenCode(fparser, "%I} else if (%S) {$$", tab, &s1);
+                        if (gp1 == gp) GenCode(fparser, "%Iif (", tab);
+                        else GenCode(fparser, "%I} else if (", tab);
+                        GenCondition(gn1->INNER, &s1);
+                        GenCode(fparser, ") {$$");
 					}
 					CompExpected(gn1->INNER, CurrentNt, &s1);
-					Set_Union(&s1, chequed);
+                    if (HasResolver(gn1->INNER)) Set_Clean(&s1);
+                    else Set_Union(&s1, chequed);
 					GenFuncGraph(gn1->INNER, tab + 1 + gen_case, &s1);
 					if (gen_case) GenCode(fparser, "%Ibreak;$$", tab + 2);
 					gp1 = gn1->ALT;
@@ -281,6 +321,9 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 				Set_Done(&symdone);
 				break;
 			}
+		case T_RESOLVER:
+            /* Its expression was emitted by the surrounding decision. */
+            break;
 		case T_SEM:
 			GenSemCode(tab, gn->SEMPOS, gn->SEMLEN, gn->SEMLINE,
 				gn->SEMCOL + 2, TRUE);
@@ -297,7 +340,7 @@ static void GenFuncGraph(int gp, int tab, Set *chequed)
 				break;
 			} /* case */
 		} /* switch */
-		if (gn->type != T_SEM && gn->type != T_SYNC) Set_Clean(chequed);
+		if (gn->type != T_SEM && gn->type != T_RESOLVER && gn->type != T_SYNC) Set_Clean(chequed);
 		gp = gn->next;
 	}
 

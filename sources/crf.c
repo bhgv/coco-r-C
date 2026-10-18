@@ -66,8 +66,12 @@ static int CopyNextCh(FILE *frame)
 
 	c = fgetc(frame);
 	if (c == 10) strcpy(GEN_PREFIX, "");
-	else if (c == '\t') strcat(GEN_PREFIX, "\t");
-	else strcat(GEN_PREFIX, " ");
+	else if (strlen(GEN_PREFIX) < sizeof(GEN_PREFIX) - 1) {
+        /* Prefix affects indentation only; long frame lines must not overflow. */
+        size_t length = strlen(GEN_PREFIX);
+        GEN_PREFIX[length] = c == '\t' ? '\t' : ' ';
+        GEN_PREFIX[length + 1] = '\0';
+    }
 	return c;
 }
 

@@ -379,8 +379,9 @@ void SetTermName(PTermNode tn)
 {
 	char str[MAX_ID_LEN];
 	char temp[MAX_ID_LEN];
-	char name[MAX_ID_LEN + 100];
+	char name[MAX_ID_LEN * 8];
 	char *t;
+    int index;
 
 	strcpy(temp, tn->name);
 	name[0] = '\0';
@@ -396,10 +397,14 @@ void SetTermName(PTermNode tn)
 		strcat(name, str);
 		t++;
 	}
-	/* ensure that the name is not longer that MAX_ID_LEN */
-	name[MAX_ID_LEN - 4] = '\0';
-
-	strcat(name, "Sym");
+	/* Long escaped byte names must not collapse to the same C identifier. */
+    if (strlen(name) > MAX_ID_LEN - 4) {
+        for (index = 0; index < Collection_Count(&term_tab); ++index)
+            if (Collection_At(&term_tab, index) == tn) break;
+        name[MAX_ID_LEN - 15] = '\0';
+        sprintf(str, "_%dSym", index);
+        strcat(name, str);
+    } else strcat(name, "Sym");
 	strcpy(tn->gen_name, name);
 }
 
@@ -814,6 +819,7 @@ static int IsNullableNode(int gp)
 	case T_OPT:
 	case T_REP:
 	case T_SEM:
+	case T_RESOLVER:
 	case T_SYNC:
 		return TRUE;
 	case T_ALT:
@@ -1418,7 +1424,8 @@ static void Func_CheckLL1Graph(int gp)
 					gn1 = GetGraphP(gp1);
 					CR_ASSERT(gn1 != NULL);
 					Set_Clean(&Set2);
-					CompExpected(gn1->INNER, CurrentNt, &Set2);
+					if (GetGraphP(gn1->INNER)->type != T_RESOLVER)
+						CompExpected(gn1->INNER, CurrentNt, &Set2);
 					CheckSets(1, &Set1, &Set2);
 					Set_Union(&Set1, &Set2);
 					gp1 = gn1->ALT;
@@ -1436,7 +1443,8 @@ static void Func_CheckLL1Graph(int gp)
 		case T_REP:
 			Set_Clean(&Set1);
 			Set_Clean(&Set2);
-			CompExpected(gn->INNER, CurrentNt, &Set1);
+			if (GetGraphP(gn->INNER)->type != T_RESOLVER)
+				CompExpected(gn->INNER, CurrentNt, &Set1);
 			CompExpected(abs(gn->next), CurrentNt, &Set2);
 			CheckSets(2, &Set1, &Set2);
 			Func_CheckLL1Graph(gn->INNER);
@@ -1454,6 +1462,30 @@ static void Func_CheckLL1Graph(int gp)
 static void CheckLL1(void)
 {
 	ForEachNTermGraph((Graph_Func) Func_CheckLL1Graph);
+}
+
+/* Only the first node of an alternative, option or repetition can select a path. */
+static void CheckResolverGraph(int gp, int allowed)
+{
+    while (gp > NIL) {
+        PGraphNode node = GetGraphP(gp);
+        if (node->type == T_RESOLVER && !allowed) {
+            fprintf(lstfile, "IF at line %d must lead an alternative, option or repetition\n", node->SEMLINE);
+            ++Errors;
+        }
+        if (node->type == T_OPT || node->type == T_REP || node->type == T_ALT)
+            CheckResolverGraph(node->INNER, TRUE);
+        if (node->type == T_ALT && node->ALT)
+            CheckResolverGraph(node->ALT, FALSE);
+        allowed = FALSE;
+        gp = node->next;
+    }
+}
+
+/* Validate resolver positions in one production before writing generated files. */
+static void CheckProductionResolvers(int gp)
+{
+    CheckResolverGraph(gp, FALSE);
 }
 
 /* compute all symbol sets needed */
@@ -1481,6 +1513,7 @@ void CompSymbolSets(void)
 
 	CompAllSYNCSets();
 	CompAllWEAKSets();
+	ForEachNTermGraph((Graph_Func) CheckProductionResolvers);
 	CheckLL1();
 }
 

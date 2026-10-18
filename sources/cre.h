@@ -26,6 +26,7 @@
          "\"(\" expected",
          "\")\" expected",
          "\"|\" expected",
+         "\"IF\" expected",
          "\"WEAK\" expected",
          "\"[\" expected",
          "\"]\" expected",

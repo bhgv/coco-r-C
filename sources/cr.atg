@@ -13,6 +13,15 @@ COMPILER CR
 #include <string.h>
 #include <stdlib.h>
 
+/* Symbol tables retain the historical 31-byte name limit. */
+static void CheckSymbol(char *name)
+{
+  if (strlen(name) >= MAX_ID_LEN) {
+    SemError(132);
+    name[MAX_ID_LEN - 1] = 0;
+  }
+}
+
 static void FixString(char *name)
 {
   int i, j, len, spaces, start;
@@ -68,7 +77,7 @@ static void SetCtx (int gp)
 static void StringClass(char *s, Set *items)
 {
   s[strlen(s)-1]=0;  s++;  /* Ignore First and Last character */
-  while (*s) Set_AddItem(items, *s++);
+  while (*s) Set_AddItem(items, (unsigned char)*s++);
 }
 
 /**************************************************************************/
@@ -233,11 +242,12 @@ ChrSet<int *n> =
    "CHR" "("
    (   number                   (. LexString(str, sizeof(str)-1);
                                    x = atoi(str);
+                                   if (S_Len >= (int)sizeof(str)) { SemError(118); x = 0; }
                                    if (x > 255) { SemError(118); x = 0; }
                                    *n = x; .)
      | string                   (. LexString(str, sizeof(str)-1);
                                    if (strlen(str) != 3) SemError(118);
-                                   *n = str[1]; .)
+                                   *n = (unsigned char)str[1]; .)
    ) ")"
    .
 
@@ -253,7 +263,7 @@ TokenDecl<int sec_type> =
         "."
       |                         (. P_option = TRUE; .)
       )
-    | String<name>              (. P_option = TRUE;
+    | String<name>              (. CheckSymbol(name); P_option = TRUE;
                                    if ((sp = FindSym(name, &type)) != UNDEF) SemError(107);
                                    else sp = NewSym(name, sec_type); .)
    )
@@ -276,12 +286,38 @@ Expression<int *n> =
    .
 
 Term<int *n> =
-                                (. int n0 = NIL, n1, n2; .)
+                                (. int n0 = NIL, n1, n2, resolver = NIL; .)
+   [ Resolver<&resolver> ]
    (  Factor<&n1>               (. n0 = n1; .)
       { Factor<&n2>             (. n1 = LinkGraph(n1, n2); .)
       }
    |  /*Empty*/                 (. n0 = MakeSemGraph(T_SEM, -1, 0, S_Line, S_Col); .)
-   )                            (. *n = n0; .)
+   )                            (. if (resolver) { LinkGraph(resolver, n0); n0 = resolver; }
+                                   *n = n0; .)
+   .
+
+/* A resolver is a C expression, not an ATG expression. The scanner already
+   keeps quoted strings/characters whole and skips comments. Capture the exact
+   source span so parentheses inside either cannot terminate the predicate. */
+Resolver<int *n> =
+                                (. long start;
+                                   int line, col, depth, tokens; .)
+   "IF" "("                     (. start = S_Pos + 1;
+                                   line = S_Line; col = S_Col + 1;
+                                   depth = 1; tokens = 0;
+                                   while (Sym != EOF_Sym && depth) {
+                                     if (Sym == LparenSym) ++depth;
+                                     else if (Sym == RparenSym) --depth;
+                                     if (depth) {
+                                       if (Sym == badstringSym) SemError(102);
+                                       ++tokens;
+                                       Get();
+                                     }
+                                   }
+                                   if (!tokens) SemError(131);
+                                   *n = MakeSemGraph(T_RESOLVER, start,
+                                       (int)(S_NextPos-start), line, col); .)
+   ")"
    .
 
 Factor<int *n>  =
@@ -356,7 +392,7 @@ TokenFactor<int *n> =
                                      p = MakeGraph(T_CHAR, 0);
                                      SemError(115);
                                    } else p = MakeGraph(T_CLASS, p); .)
-    | String<name>              (. p = StrToGraph((unsigned char *) name); .)
+    | String<name>              (. CheckSymbol(name); p = StrToGraph((unsigned char *) name); .)
     | "(" TokenExpr<&p> ")"
     | "[" TokenExpr<&p> "]"     (. p = MakeGraphOp(T_OPT, p); .)
     | "{" TokenExpr<&p> "}"     (. p = MakeGraphOp(T_REP, p); .)
@@ -367,7 +403,7 @@ Symbol<char *name> =
                                 (. int sp, type; .)
     ( Ident<name>               (. sp = FindSym(name, &type);
                                    if (sp == UNDEF) sp = NewSym(name, T_NT); .)
-    | String<name>              (. sp = FindSym(name, &type);
+    | String<name>              (. CheckSymbol(name); sp = FindSym(name, &type);
                                    if (sp == UNDEF) {
                                      sp = NewSym(name, T_T);
                                      MatchLiteral(sp);
@@ -376,11 +412,13 @@ Symbol<char *name> =
     .
 
 Ident<char *s> =
-   ident                        (. LexString(s, MAX_ID_LEN-1) .)
+   ident                        (. if (S_Len >= MAX_ID_LEN) SemError(132);
+                                   LexString(s, MAX_ID_LEN-1) .)
    .
 
 String<char *s> =
-   string                       (. LexString(s, MAX_STR_LEN-1);
+   string                       (. if (S_Len >= MAX_STR_LEN) SemError(132);
+                                   LexString(s, MAX_STR_LEN-1);
                                    FixString(s); .)
    .
 
@@ -413,10 +451,11 @@ SemText<int *n> =
    .
 
 NameDecl =
-                                (. Name username, name; .)
+                                (. Name username;
+                                   char name[MAX_STR_LEN]; .)
    Ident<username>
    "="
-   (Ident<name> | String<name>)
+   (Ident<name> | String<name> (. CheckSymbol(name); .))
    "."                          (. NewName(name, username); .)
    .
 

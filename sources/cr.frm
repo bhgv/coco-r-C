@@ -188,6 +188,12 @@ static void PrintErrMsg(int nr)
     case 129:
       fprintf(lst, "literal tokens may not be empty");
       break;
+    case 132:
+      fprintf(lst, "Identifier or quoted text exceeds its byte limit");
+      break;
+    case 131:
+      fprintf(lst, "IF requires a nonempty C expression");
+      break;
     case 130:
       fprintf(lst, "IGNORE CASE must appear earlier");
       break;

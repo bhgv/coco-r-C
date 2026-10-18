@@ -980,21 +980,20 @@ static void fixname(char *s, char *d)
 
 static void GenLiterals(void)
 {
-	char token[MAX_ID_LEN], name[MAX_ID_LEN];
+	char token[MAX_ID_LEN], name[2 * MAX_ID_LEN + 2];
 	int i, p, start;
 	PTermNode n;
 
-	for (i = 33; i < 127; i++) {
+	for (i = 1; i < 256; i++) {
 		p = 0;
 		start = 0;
 		while (p < term_tab.el_free) {
 			n = GetTermP(p);
 			CR_ASSERT(n != NULL);
-			if (n->type == T_LITTOKEN && n->name[1] == i) {
+			if (n->type == T_LITTOKEN && (unsigned char)n->name[1] == i) {
 				GetTermName(p, token);
 				if (start == 0) {
-					if (i != '\\') GenCode(fscan, "$1case '%c':$$", i);
-					else GenCode(fscan, "$1case %d:$$", i);
+					GenCode(fscan, "$1case %d:$$", i);
 				}
 				fixname(n->name, name);
 				GenCode(fscan, "$2if (EqualStr(%s)) return %s;$$", name, token);

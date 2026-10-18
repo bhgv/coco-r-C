@@ -2,6 +2,18 @@ a C port of the [coco/r](http://www.ssw.uni-linz.ac.at/Coco/) parser generator.
 
 v1.17 by Frankie Arzu corrected by me (realloc sometimes broke program memory. the algo has been slightly modified)
 
+Build and regression tests:
+
+```sh
+make -C sources -f unix.mk
+python3 tests/regression.py
+```
+
+The C backend now supports `IF(C-expression)` resolvers in alternatives,
+options and repetitions. See [semantics, UTF-8 support and audit notes](docs/RESOLVERS_UTF8.md)
+and the [commented C example](samples/resolvers/README.md).
+UTF-8 strings are supported as byte sequences; this is not a Unicode-codepoint scanner.
+
 a light introduction:
 ====================
 
@@ -26,7 +38,7 @@ coco/r part:
 - SYNC
   - =>  synchronization point. if there is some error, then control is passed here. the error may be checked with built-in functions. or don't check, but just continue the parsing.
 - ( IF( `..cond..` ) `..a..` | `..b..` )
-  - =>  (_C_)  if( `..cond..` ){ `..a..` }else{ `..b..` }
+  - => (_C_) `if (cond) { a } else if (lookahead_for_b) { b }`; the fallback still uses token prediction.
 - { IF( `..cond..` ) `...` }
   - =>  (_C_)  while( `..cond..` ){ `...` }
 - (. `...` .)

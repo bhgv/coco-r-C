@@ -11,7 +11,7 @@ typedef struct {
   int n_ext;
   int size;
   int el_free;
-  char *data;
+  char **data; /* Pointer table; records remain stable across growth. */
 } Collection;
 
 typedef Collection *PCollection;
