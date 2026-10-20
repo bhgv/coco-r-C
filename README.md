@@ -14,6 +14,12 @@ options and repetitions. See [semantics, UTF-8 support and audit notes](docs/RES
 and the [commented C example](samples/resolvers/README.md).
 UTF-8 strings are supported as byte sequences; this is not a Unicode-codepoint scanner.
 
+Generated C parser headers and error functions use `error_number` for diagnostic
+parameters, so including `<errno.h>` (or Windows `<stdlib.h>`) before a generated
+header does not expand the parameter as an `errno` macro. Function names and
+argument types are unchanged. `tests/regression.py` checks header inclusion,
+parser definitions, the retained errno value and invalid-input rejection.
+
 a light introduction:
 ====================
 

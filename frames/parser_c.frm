@@ -31,30 +31,30 @@ static unsigned short int SymSet[][MAXSYM] = {
   -->SymSets{0x0}
 };
 
-void GenError(int errno)
+void GenError(int error_number)
 { if (ErrDist >= MinErrDist) {
     if (Custom_Error != 0L)
-      (*Custom_Error) (errno, S_NextLine, S_NextCol, S_NextPos);
+      (*Custom_Error) (error_number, S_NextLine, S_NextCol, S_NextPos);
     errors++;
   }
   ErrDist = 0;
 }
 
-void SynError(int errno)
-{ if (errno <= MAXERROR) errno = MAXERROR;
+void SynError(int error_number)
+{ if (error_number <= MAXERROR) error_number = MAXERROR;
   if (ErrDist >= MinErrDist) {
     if (Custom_Error != 0L)
-      (*Custom_Error) (errno, S_NextLine, S_NextCol, S_NextPos);
+      (*Custom_Error) (error_number, S_NextLine, S_NextCol, S_NextPos);
     errors++;
   }
   ErrDist = 0;
 }
 
-void SemError(int errno)
-{ if (errno <= MAXERROR) errno = MAXERROR;
+void SemError(int error_number)
+{ if (error_number <= MAXERROR) error_number = MAXERROR;
   if (ErrDist >= MinErrDist) {
     if (Custom_Error != 0L)
-      (*Custom_Error) (errno, S_Line, S_Col, S_Pos);
+      (*Custom_Error) (error_number, S_Line, S_Col, S_Pos);
     errors++;
   }
   ErrDist = 0;

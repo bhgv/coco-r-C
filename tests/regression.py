@@ -41,9 +41,37 @@ def case(body, data, expected, declarations='', header='', bom=False, valid=True
             raise RuntimeError(f'{data!r}: {result.returncode}, {result.stdout!r}, {result.stderr!r}')
 
 
+def errno_macro_case():
+    """Generated headers and definitions must tolerate an existing errno macro."""
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        result = grammar(directory, '"x" (. if (errno != 17) abort(); puts("ok"); .) .')
+        if result.returncode:
+            raise RuntimeError(result.stderr.decode())
+        # Model the pointer-valued errno macro exposed by Windows stdlib.h,
+        # while also including the native libc's real errno header first.
+        prefix = ('#include <stdio.h>\n#include <stdlib.h>\n#include <errno.h>\n'
+                  'static int test_errno_value = 17;\n'
+                  'static int *cocor_test_errno(void) { return &test_errno_value; }\n'
+                  '#undef errno\n#define errno (*cocor_test_errno())\n')
+        (directory/'probe.c').write_text(prefix + '#include "demop.h"\n'
+            'void probe(void) { SynError(1000); SemError(1001); }\n')
+        run([CC, *FLAGS, '-Werror', '-c', 'probe.c', '-o', 'probe.o'], directory)
+        (directory/'embedded.c').write_text(prefix + '#include "demop.c"\n')
+        run([CC, *FLAGS, '-o', 'demo', 'demo.c', 'embedded.c', 'demos.c'], directory)
+        (directory/'input').write_text('x')
+        result = run([directory/'demo', 'input'], directory)
+        if result.stdout.strip() != b'ok':
+            raise RuntimeError('errno macro value changed during parsing')
+        (directory/'input').write_text('y')
+        if run([directory/'demo', 'input'], directory, ok=False).returncode == 0:
+            raise RuntimeError('parser error reporting stopped rejecting invalid input')
+
+
 def main():
     run(['make', '-C', 'sources', '-f', 'unix.mk'] +
         (['CFLAGS=' + ' '.join(FLAGS)] if 'TEST_CFLAGS' in os.environ else []), ROOT)
+    errno_macro_case()
     # A rejected guarded branch must leave the same-token fallback available.
     for choice in (0, 1):
         case('( IF(choose && (1)) "x" (. puts("yes"); .) | '

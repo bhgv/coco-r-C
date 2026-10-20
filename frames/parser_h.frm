@@ -26,11 +26,11 @@ void Parse(unsigned char* text, int text_len);
 int Successful(void);
 /* Returns 1 if no errors have been recorded while parsing */
 
-void SynError(int errno);
-/* Report Syntactic Error errno */
+void SynError(int error_number);
+/* Report Syntactic Error error_number */
 
-void SemError(int errno);
-/* Report Semantic Error errno */
+void SemError(int error_number);
+/* Report Semantic Error error_number */
 
 #define LexString(lex, size)    S_GetString(S_Pos, S_Len, lex, size)
 /* Retrieves Lex as exact spelling of current token */
